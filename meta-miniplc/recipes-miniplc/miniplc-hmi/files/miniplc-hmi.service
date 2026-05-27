@@ -1,0 +1,14 @@
+[Unit]
+Description=MiniPLC local LVGL touchscreen HMI
+After=plc-firmware.service network-online.target
+Wants=plc-firmware.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/miniplc-hmi
+Restart=on-failure
+RestartSec=3
+Environment=HOME=/root
+
+[Install]
+WantedBy=multi-user.target

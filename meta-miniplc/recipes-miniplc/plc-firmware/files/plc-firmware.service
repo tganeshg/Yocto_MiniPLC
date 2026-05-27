@@ -1,0 +1,12 @@
+[Unit]
+Description=Mini PLC firmware runtime (scan cycle + register map)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/plc_firmware
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
