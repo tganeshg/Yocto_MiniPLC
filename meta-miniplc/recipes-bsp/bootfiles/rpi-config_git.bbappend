@@ -9,6 +9,15 @@
 
 do_deploy:append() {
     CONFIG="${DEPLOYDIR}/${BOOTFILES_DIR_NAME}/config.txt"
+    if [ -f "${CONFIG}" ]; then
+        # Silent boot: no rainbow splash, no firmware warnings on screen.
+        # HMI takes over the framebuffer — we don't want anything else
+        # drawing on it.
+        echo "" >> ${CONFIG}
+        echo "# MiniHMI silent boot (meta-miniplc)" >> ${CONFIG}
+        echo "disable_splash=1" >> ${CONFIG}
+        echo "avoid_warnings=1" >> ${CONFIG}
+    fi
     if [ "${VC4GRAPHICS}" = "1" ] && [ -f "${CONFIG}" ]; then
         echo "" >> ${CONFIG}
         echo "# MiniHMI 7-inch DSI panel overlay (meta-miniplc)" >> ${CONFIG}

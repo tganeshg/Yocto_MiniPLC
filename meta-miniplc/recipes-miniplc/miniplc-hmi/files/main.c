@@ -1,248 +1,97 @@
-/**
- * Local LVGL panel — PLC+HMI product (plan §12, HMI-07).
- * Prefers DRM/KMS on /dev/dri/card0 (Raspberry Pi), falls back to /dev/fb0.
+/*
+ * MiniPLC HMI — display init.
+ *
+ * On the RPi B+ with the VC4 KMS DSI overlay the kernel exposes BOTH
+ * /dev/dri/card0 (real KMS) and an emulated /dev/fb0 (vc4drmfb).  We tried
+ * the fbdev driver first; even with LV_LINUX_FBDEV_RENDER_MODE_DIRECT it
+ * leaves the panel mostly black (only a tiny region of the framebuffer
+ * actually receives pixels).  That matches the warning baked into our
+ * lv_conf.h:
+ *
+ *     #define LV_USE_LINUX_DRM 1
+ *     // Driver for /dev/dri/card — preferred on Raspberry Pi KMS
+ *     // (fixes black panel with fbdev-only).
+ *
+ * So: try DRM first, fall back to fbdev only if /dev/dri/card0 is missing
+ * (e.g. early bring-up or fb-only kernels).  Either way, attach evdev for
+ * the capacitive touchscreen.
  */
-#include <errno.h>
-#include <fcntl.h>
-#include <json-c/json.h>
-#include <linux/fb.h>
-#include <stdarg.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/ioctl.h>
 #include <unistd.h>
+#include <lvgl/lv_conf.h>
+#include <lvgl/lvgl.h>
+#include "menu.h"
 
-#include <lvgl.h>
-
-#if LV_USE_LINUX_DRM
-#include <xf86drm.h>
-#include <xf86drmMode.h>
-#endif
-
-#if LV_USE_LINUX_DRM
-#include "src/drivers/display/drm/lv_linux_drm.h"
-#endif
-#if LV_USE_LINUX_FBDEV
-#include "src/drivers/display/fb/lv_linux_fbdev.h"
-#endif
-
-#define MANIFEST_PATH "/var/lib/plc/hmi/hmi_manifest.json"
-#define FALLBACK_TEXT "No UI configured"
-#define FB_DEVICE "/dev/fb0"
-#define DRM_DEVICE "/dev/dri/card0"
-#define LOG_PATH "/var/log/miniplc-hmi.log"
-
-static FILE *log_fp;
-
-static void log_line(const char *fmt, ...)
+#if LV_USE_EVDEV
+static void attach_touch(lv_display_t *disp)
 {
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    if (log_fp)
-        vfprintf(log_fp, fmt, ap);
-    va_end(ap);
-}
-
-/** Kernel often boots panels with sysfs blanking on — screen stays black. */
-static void unblank_all_fbs(void)
-{
-    char path[80];
-    for (unsigned i = 0; i < 8; i++) {
-        snprintf(path, sizeof(path), "/sys/class/graphics/fb%u/blank", i);
-        FILE *w = fopen(path, "we");
-        if (!w)
-            continue;
-        fputs("0\n", w);
-        fclose(w);
+    const char *input_device = LV_LINUX_EVDEV_POINTER_DEVICE;
+    if (!input_device || !*input_device) {
+        fprintf(stderr, "[HMI] LV_LINUX_EVDEV_POINTER_DEVICE not set — no touch input\n");
+        return;
     }
-}
-
-#if LV_USE_LINUX_DRM
-/** True if a KMS connector with a mode is connected (matches LVGL drm backend). */
-static bool drm_primary_available(void)
-{
-    int fd = open(DRM_DEVICE, O_RDWR | O_CLOEXEC);
-    if (fd < 0) {
-        log_line("miniplc-hmi: open %s: %s (using fbdev)\n", DRM_DEVICE,
-                 strerror(errno));
-        return false;
-    }
-
-    drmModeRes *res = drmModeGetResources(fd);
-    if (!res) {
-        log_line("miniplc-hmi: drmModeGetResources failed\n");
-        close(fd);
-        return false;
-    }
-
-    bool ok = false;
-    for (int i = 0; i < res->count_connectors && !ok; i++) {
-        drmModeConnector *conn =
-            drmModeGetConnector(fd, res->connectors[i]);
-        if (!conn)
-            continue;
-        if (conn->connection == DRM_MODE_CONNECTED && conn->count_modes > 0)
-            ok = true;
-        drmModeFreeConnector(conn);
-    }
-    drmModeFreeResources(res);
-    close(fd);
-
-    if (!ok)
-        log_line("miniplc-hmi: no connected DRM connector (using fbdev)\n");
-    return ok;
+    lv_indev_t *touch = lv_evdev_create(LV_INDEV_TYPE_POINTER, input_device);
+    if (touch) lv_indev_set_display(touch, disp);
+    fprintf(stderr, "[HMI] touch input attached: %s\n", input_device);
 }
 #endif
 
-static int count_screens(void)
+static lv_display_t *disp_init(void)
 {
-    json_object *root = json_object_from_file(MANIFEST_PATH);
-    if (!root)
-        return -1;
-
-    json_object *sc = NULL;
-    int n = -1;
-    if (json_object_object_get_ex(root, "screens", &sc) &&
-        json_object_is_type(sc, json_type_array))
-        n = json_object_array_length(sc);
-    json_object_put(root);
-    return n;
-}
-
-/** Log framebuffer geometry; warn if LVGL fbdev backend cannot handle bpp. */
-static bool probe_framebuffer(const char *path)
-{
-    int fd = open(path, O_RDWR);
-    if (fd < 0) {
-        log_line("miniplc-hmi: open %s: %s\n", path, strerror(errno));
-        return false;
-    }
-
-    struct fb_fix_screeninfo finfo;
-    struct fb_var_screeninfo vinfo;
-    if (ioctl(fd, FBIOGET_FSCREENINFO, &finfo) < 0 ||
-        ioctl(fd, FBIOGET_VSCREENINFO, &vinfo) < 0) {
-        log_line("miniplc-hmi: ioctl on %s failed: %s\n", path,
-                strerror(errno));
-        close(fd);
-        return false;
-    }
-
-    log_line("miniplc-hmi: %s %ux%u %ubpp line_length=%u smem_len=%u\n",
-             path, vinfo.xres, vinfo.yres, vinfo.bits_per_pixel,
-             finfo.line_length, finfo.smem_len);
-
-    if (vinfo.bits_per_pixel != 16 && vinfo.bits_per_pixel != 24 &&
-        vinfo.bits_per_pixel != 32) {
-        log_line(
-            "miniplc-hmi: unsupported bpp %u (need 16/24/32); fbdev unusable.\n",
-            vinfo.bits_per_pixel);
-        close(fd);
-        return false;
-    }
-
-    close(fd);
-    return true;
-}
-
-static void build_ui(lv_obj_t *scr)
-{
-    const int n = count_screens();
-    const char *msg;
-
-    if (n < 0 || n == 0) {
-        msg = FALLBACK_TEXT;
-    } else {
-        static char buf[128];
-        snprintf(buf, sizeof(buf), "MiniPLC HMI (%d screen%s)", n,
-                 n == 1 ? "" : "s");
-        msg = buf;
-    }
-
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0xF0F0F0), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
-
-    lv_obj_t *lbl = lv_label_create(scr);
-    lv_label_set_text(lbl, msg);
-
-    lv_obj_set_style_text_color(lbl, lv_color_hex(0x101010), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
-}
-
-static lv_display_t *create_display_drm(void)
-{
-#if LV_USE_LINUX_DRM
-    lv_display_t *disp = lv_linux_drm_create();
-    if (!disp)
-        return NULL;
-    lv_linux_drm_set_file(disp, DRM_DEVICE, -1);
-    return disp;
-#else
-    return NULL;
-#endif
-}
-
-static lv_display_t *create_display_fbdev(void)
-{
-#if LV_USE_LINUX_FBDEV
-    lv_display_t *disp = lv_linux_fbdev_create();
-    if (!disp)
-        return NULL;
-    lv_linux_fbdev_set_file(disp, FB_DEVICE);
-    return disp;
-#else
-    return NULL;
-#endif
-}
-
-int main(void)
-{
-    log_fp = fopen(LOG_PATH, "ae");
-    if (log_fp)
-        setbuf(log_fp, NULL);
-
-    log_line("miniplc-hmi: starting\n");
-
-    unblank_all_fbs();
-    lv_init();
-
     lv_display_t *disp = NULL;
 
 #if LV_USE_LINUX_DRM
-    if (drm_primary_available())
-        disp = create_display_drm();
+    /* Preferred path on RPi KMS — direct rendering via /dev/dri/card0. */
+    if (access("/dev/dri/card0", F_OK) == 0) {
+        disp = lv_linux_drm_create();
+        if (disp) {
+            lv_linux_drm_set_file(disp, "/dev/dri/card0", -1);
+            fprintf(stderr, "[HMI] display: DRM /dev/dri/card0\n");
+            return disp;
+        }
+        fprintf(stderr, "[HMI] lv_linux_drm_create() failed, falling back to fbdev\n");
+    } else {
+        fprintf(stderr, "[HMI] /dev/dri/card0 missing, falling back to fbdev\n");
+    }
 #endif
 
-    if (!disp) {
-        if (!probe_framebuffer(FB_DEVICE))
-            goto fail;
-        disp = create_display_fbdev();
-        if (!disp)
-            goto fail;
-        log_line("miniplc-hmi: using framebuffer %s\n", FB_DEVICE);
-    } else {
-        log_line("miniplc-hmi: using DRM %s\n", DRM_DEVICE);
+#if LV_USE_LINUX_FBDEV
+    {
+        const char *fbdev = LV_LINUX_FBDEV_DEVICE;
+        disp = lv_linux_fbdev_create();
+        if (!disp) {
+            fprintf(stderr, "[HMI] lv_linux_fbdev_create() failed\n");
+            return NULL;
+        }
+        lv_linux_fbdev_set_file(disp, fbdev);
+        fprintf(stderr, "[HMI] display: fbdev %s\n", fbdev);
+        return disp;
     }
-
-    lv_display_set_default(disp);
-
-    build_ui(lv_screen_active());
-    lv_refr_now(disp);
-
-    while (1) {
-        lv_tick_inc(5);
-        lv_timer_handler();
-        usleep(5000);
-    }
-
-fail:
-    log_line("miniplc-hmi: fatal init failure\n");
-    if (log_fp)
-        fclose(log_fp);
-    return 1;
+#else
+    #error "No display backend enabled in lv_conf.h (need LV_USE_LINUX_DRM or LV_USE_LINUX_FBDEV)"
+#endif
 }
+
+int main(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+
+    lv_init();
+
+    lv_display_t *disp = disp_init();
+    if (!disp) {
+        fprintf(stderr, "[HMI] no display backend available — aborting\n");
+        return 1;
+    }
+
+#if LV_USE_EVDEV
+    attach_touch(disp);
+#endif
+
+    menu_create();
+    menu_loop();
+    return 0;
+}
+
+/* EOF */

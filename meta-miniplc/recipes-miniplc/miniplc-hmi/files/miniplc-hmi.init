@@ -22,16 +22,21 @@ start)
     for b in /sys/class/graphics/fb*/blank; do
         [ -w "$b" ] && echo 0 >"$b" 2>/dev/null || true
     done
-    # DRM/KMS path needs /dev/dri/card0; fb-only images may lack it — still try HMI.
-    if [ ! -c /dev/fb0 ] && [ ! -c /dev/dri/card0 ]; then
-        echo "$DESC: no /dev/fb0 or /dev/dri/card0, skipping."
+    # Prefer the DRM/KMS path (/dev/dri/card0).  Fbdev (/dev/fb0) is a fallback.
+    if [ ! -c /dev/dri/card0 ] && [ ! -c /dev/fb0 ]; then
+        echo "$DESC: no /dev/dri/card0 or /dev/fb0, skipping."
         exit 0
     fi
     echo -n "Starting $DESC: "
     export HOME=/root
+    # Capture stderr so the LVGL backend choice ("[HMI] display: DRM ...")
+    # and any modbus/menu fprintf logs are visible after a crash.
+    # busybox start-stop-daemon has no --stdout/--stderr — wrap with sh -c.
+    LOG=/var/log/miniplc-hmi.log
+    : > "$LOG" 2>/dev/null || true
     start-stop-daemon --start --quiet --oknodo \
         --background --make-pidfile --pidfile "$PID" \
-        --exec "$DAEMON"
+        --exec /bin/sh -- -c "exec >>$LOG 2>&1; exec $DAEMON"
     echo "$NAME."
     ;;
 stop)
