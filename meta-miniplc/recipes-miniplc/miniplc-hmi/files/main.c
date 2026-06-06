@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <lvgl/lv_conf.h>
 #include <lvgl/lvgl.h>
+#include <mdcu_pool.h>
 #include "menu.h"
 
 #if LV_USE_EVDEV
@@ -76,6 +77,17 @@ static lv_display_t *disp_init(void)
 int main(int argc, char **argv)
 {
     (void)argc; (void)argv;
+
+    /* Open (or create) the unified register pool before anything else —
+     * every subsystem (Modbus poller, future ladder VM, REST API) writes
+     * into the same shared-memory mmap.  Fail open: log + continue so the
+     * HMI still renders if shm is somehow unavailable. */
+    if (mdcu_pool_open() != 0) {
+        fprintf(stderr, "[HMI] mdcu_pool_open() failed: %m — continuing without pool\n");
+    } else {
+        fprintf(stderr, "[HMI] mdcu_pool: %u regs at /dev/shm%s\n",
+                MDCU_POOL_REGS, MDCU_SHM_NAME);
+    }
 
     lv_init();
 

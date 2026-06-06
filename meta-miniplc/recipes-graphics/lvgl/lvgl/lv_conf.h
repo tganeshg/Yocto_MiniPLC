@@ -69,8 +69,11 @@
 #define LV_STDARG_INCLUDE       <stdarg.h>
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN
-    /** Size of memory available for `lv_malloc()` in bytes (>= 2kB) */
-    #define LV_MEM_SIZE (64 * 1024U)          /**< [bytes] */
+    /** Size of memory available for `lv_malloc()` in bytes (>= 2kB).
+     *  RPi B+ has 512 MB RAM; the 64 KB MCU default OOMs as soon as we open
+     *  the Modbus Config modal (lv_win + 5 textareas + on-screen keyboard).
+     *  Bump to 8 MB — leaves plenty of headroom for future modals/tabs. */
+    #define LV_MEM_SIZE (8 * 1024U * 1024U)   /**< [bytes] */
 
     /** Size of the memory expand for `lv_malloc()` in bytes */
     #define LV_MEM_POOL_EXPAND_SIZE 0

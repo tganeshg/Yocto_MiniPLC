@@ -1,0 +1,10 @@
+prefix=@PREFIX@
+exec_prefix=${prefix}
+libdir=@LIBDIR@
+includedir=@INCDIR@
+
+Name: mdcu-pool
+Description: MDCU unified register pool (shared memory, typed accessors)
+Version: @VERSION@
+Libs: -L${libdir} -lmdcu_pool -lrt
+Cflags: -I${includedir}

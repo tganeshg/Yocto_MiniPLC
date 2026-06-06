@@ -1,5 +1,5 @@
 SUMMARY = "MiniPLC LVGL local HMI (framebuffer)"
-PR = "r7"
+PR = "r11"
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
@@ -26,8 +26,8 @@ inherit cmake systemd pkgconfig update-rc.d
 # xf86drmMode.h (lv_conf.h has LV_USE_LINUX_DRM=1), and that header
 # #include <drm.h> — which libdrm ships under .../libdrm/drm.h, not on
 # the default search path.  So we still need libdrm at build time.
-DEPENDS += "lvgl libmodbus libdrm"
-RDEPENDS:${PN} += "libmodbus libdrm init-ifupdown dhcpcd iproute2"
+DEPENDS += "lvgl libmodbus libdrm libmdcu-pool"
+RDEPENDS:${PN} += "libmodbus libdrm libmdcu-pool init-ifupdown dhcpcd iproute2"
 
 # Same workaround the lvgl recipe uses for its own translation units.
 # Must go through OECMAKE_* so Ninja gets the -I on every compile.

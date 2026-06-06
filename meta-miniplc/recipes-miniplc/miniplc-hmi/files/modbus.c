@@ -11,8 +11,17 @@
 #include <string.h>
 #include <time.h>
 #include <errno.h>
+#include <mdcu_pool.h>
+#include <mdcu_regmap.h>
 #include "modbus.h"
 #include "libmodbus_bridge.h"
+
+/* Each Modbus slave instance owns a 1000-word slot starting at
+ * MDCU_RNG_MODBUS_BASE.  For Phase 1 we have a single instance → slot 0,
+ * i.e. pool registers MDCU_RNG_MODBUS_BASE .. +999.  The polled slave's
+ * starting address `start_address` lands at pool offset 0 of the slot. */
+#define MB_SLOT_INDEX  0U
+#define MB_POOL_BASE   (MDCU_RNG_MODBUS_BASE + MB_SLOT_INDEX * 1000U)
 
 /**********************
  *  STATIC VARIABLES
@@ -119,6 +128,14 @@ int mb_read_registers(uint16_t start_addr, uint16_t num_regs, uint16_t *dest)
     modbus_data.last_update_time = (uint32_t)time(NULL);
     for (uint16_t i = 0; i < num_regs && i < MODBUS_MAX_REGISTERS; i++)
         modbus_data.registers[i] = dest[i];
+
+    /* Mirror the freshly-polled words into the unified pool so every other
+     * consumer (HMI overview, REST API, ladder VM, web UI) sees the same
+     * source of truth.  Slave's `start_address` lands at pool offset 0
+     * within this instance's 1000-word slot. */
+    if (mdcu_pool_is_open()) {
+        (void)mdcu_write_block(MB_POOL_BASE + start_addr, dest, num_regs);
+    }
 
     return 0;
 }

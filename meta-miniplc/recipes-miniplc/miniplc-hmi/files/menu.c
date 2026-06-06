@@ -12,11 +12,14 @@
 #include <lvgl/lvgl_private.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <sys/sysinfo.h>
 #include <sys/statvfs.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <mdcu_pool.h>
+#include <mdcu_regmap.h>
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN && LV_MEM_SIZE < (38ul * 1024ul)
     #error Insufficient memory for lv_demo_widgets. Please set LV_MEM_SIZE to at least 38KB (38ul * 1024ul).
@@ -122,16 +125,6 @@ static tile_t st_network, st_time, st_display, st_logging, st_update, st_reboot;
 /* About tiles */
 static tile_t ab_version, ab_build, ab_kernel, ab_hw, ab_license, ab_credits;
 
-/* Modal + textareas (re-used across reopens) */
-static lv_obj_t *modbus_config_modal = NULL;
-static lv_obj_t *modbus_ip_ta        = NULL;
-static lv_obj_t *modbus_port_ta      = NULL;
-static lv_obj_t *modbus_slave_id_ta  = NULL;
-static lv_obj_t *modbus_start_addr_ta= NULL;
-static lv_obj_t *modbus_num_regs_ta  = NULL;
-static lv_obj_t *modbus_enable_sw    = NULL;
-static lv_obj_t *modbus_keyboard     = NULL;
-
 /* Network config modal */
 static lv_obj_t *netcfg_modal      = NULL;
 static lv_obj_t *netcfg_mode_dd    = NULL;   /* DHCP / Static */
@@ -179,10 +172,6 @@ static void protocols_update(void);
 
 static void tabview_event_cb(lv_event_t *e);
 static void theme_toggle_event_cb(lv_event_t *e);
-static void modbus_settings_btn_event_cb(lv_event_t *e);
-static void modbus_config_save_event_cb(lv_event_t *e);
-static void modbus_config_close_event_cb(lv_event_t *e);
-static void modbus_ta_event_cb(lv_event_t *e);
 
 static void netcfg_tile_event_cb(lv_event_t *e);
 static void netcfg_save_event_cb(lv_event_t *e);
@@ -593,11 +582,8 @@ static void protocols_create(lv_obj_t *parent)
     pr_errors   = create_tile(parent, 0, 1, "ERRORS",       "0",            "read failures");
     pr_regs     = create_tile(parent, 1, 1, "REGISTERS",    "--",           "first 4 values");
 
-    /* Settings tile — make the value clickable button */
-    pr_settings = create_tile(parent, 2, 1, "CONFIG", "Open", "modbus settings");
-    lv_obj_add_flag(pr_settings.root, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(pr_settings.root, lv_color_hex(0x2a3340), LV_STATE_PRESSED);
-    lv_obj_add_event_cb(pr_settings.root, modbus_settings_btn_event_cb, LV_EVENT_CLICKED, NULL);
+    /* Configuration is done via the web UI — show a hint tile here. */
+    pr_settings = create_tile(parent, 2, 1, "WEB UI", "Configure", "via browser");
     set_tile_led(&pr_settings, COL_ACCENT);
 }
 
@@ -612,7 +598,7 @@ static void dlms_create(lv_obj_t *parent)
     dl_obis     = create_tile(parent, 2, 0, "OBIS",         "1.0.1.8.0",   "active energy");
     dl_lastread = create_tile(parent, 0, 1, "LAST READ",    "--",          "timestamp");
     dl_errors   = create_tile(parent, 1, 1, "ERRORS",       "0",           "comm failures");
-    dl_settings = create_tile(parent, 2, 1, "CONFIG",       "Open",        "dlms settings");
+    dl_settings = create_tile(parent, 2, 1, "WEB UI",       "Configure",   "via browser");
     set_tile_led(&dl_settings, COL_ACCENT);
 }
 
@@ -627,7 +613,7 @@ static void iot_create(lv_obj_t *parent)
     iot_msgs   = create_tile(parent, 2, 0, "MESSAGES",  "0",            "published");
     iot_lastup = create_tile(parent, 0, 1, "LAST UP",   "--",           "uplink");
     iot_topic  = create_tile(parent, 1, 1, "TOPIC",     "/mdcu/data",   "mqtt path");
-    iot_cfg    = create_tile(parent, 2, 1, "CONFIG",    "Open",         "iot settings");
+    iot_cfg    = create_tile(parent, 2, 1, "WEB UI",    "Configure",    "via browser");
     set_tile_led(&iot_cfg, COL_ACCENT);
 }
 
@@ -716,8 +702,9 @@ static void overview_update(void)
 {
     char buf[64];
     float t = 0.0f;
+    int   have_temp = (read_cpu_temperature_c(&t) == 0);
 
-    if (read_cpu_temperature_c(&t) == 0) {
+    if (have_temp) {
         snprintf(buf, sizeof(buf), "%.1f C", t);
         set_tile_value(&ov_cpu_temp, buf);
         if (t < 60.0f)      set_tile_led(&ov_cpu_temp, COL_LED_GREEN);
@@ -726,6 +713,17 @@ static void overview_update(void)
     } else {
         set_tile_value(&ov_cpu_temp, "N/A");
         set_tile_led(&ov_cpu_temp, COL_LED_OFF);
+    }
+
+    /* Mirror system metrics into the SYS range of the pool so every other
+     * consumer (REST API, future ladder code, web UI) reads the same values. */
+    if (mdcu_pool_is_open()) {
+        if (have_temp)
+            mdcu_set_i32(MDCU_SYS_CPU_TEMP_MILLIC, (int32_t)(t * 1000.0f));
+        mdcu_set_u32(MDCU_SYS_EPOCH, (uint32_t)time(NULL));
+        /* Heartbeat counter — visible proof in xxd that the pool is live. */
+        mdcu_set_u16(MDCU_SYS_HEARTBEAT,
+                     (uint16_t)(mdcu_get_u16(MDCU_SYS_HEARTBEAT) + 1U));
     }
 
     if (timeinfo) {
@@ -751,6 +749,9 @@ static void overview_update(void)
         if      (mb_free > 64) set_tile_led(&ov_memory, COL_LED_GREEN);
         else if (mb_free > 16) set_tile_led(&ov_memory, COL_LED_YELLOW);
         else                   set_tile_led(&ov_memory, COL_LED_RED);
+
+        if (mdcu_pool_is_open())
+            mdcu_set_u32(MDCU_SYS_UPTIME_SEC, (uint32_t)si.uptime);
     }
 
     /* Network — 4-row key/value list:
@@ -862,176 +863,6 @@ static void protocols_update(void)
         set_tile_led(&pr_errors,
                      data.error_count == 0 ? COL_LED_OFF :
                      (data.error_count < 10 ? COL_LED_YELLOW : COL_LED_RED));
-    }
-}
-
-/*****************************
- *  MODBUS CONFIG MODAL
- *****************************/
-static void modbus_settings_btn_event_cb(lv_event_t *e)
-{
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (modbus_config_modal != NULL) return;       /* already open */
-
-    modbus_config_modal = lv_win_create(lv_screen_active());
-    lv_obj_set_size(modbus_config_modal, LV_HOR_RES - 40, LV_VER_RES - 100);
-    lv_obj_align(modbus_config_modal, LV_ALIGN_TOP_MID, 0, 60);
-
-    lv_obj_t *header = lv_win_get_header(modbus_config_modal);
-    lv_obj_t *title  = lv_label_create(header);
-    lv_label_set_text(title, "Modbus TCP Configuration");
-
-    lv_obj_t *content = lv_win_get_content(modbus_config_modal);
-    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_AUTO);
-    lv_obj_set_style_min_height(content, LV_VER_RES - 200, 0);
-
-    modbus_config_t cfg;
-    mb_get_config(&cfg);
-
-    lv_obj_t *lbl;
-    char tmp[24];
-
-    lbl = lv_label_create(content); lv_label_set_text(lbl, "IP Address:");
-    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 10, 10);
-    modbus_ip_ta = lv_textarea_create(content);
-    lv_textarea_set_text(modbus_ip_ta, cfg.ip_address);
-    lv_obj_set_width(modbus_ip_ta, LV_HOR_RES - 80);
-    lv_obj_align(modbus_ip_ta, LV_ALIGN_TOP_LEFT, 10, 35);
-    lv_obj_add_event_cb(modbus_ip_ta, modbus_ta_event_cb, LV_EVENT_FOCUSED,   NULL);
-    lv_obj_add_event_cb(modbus_ip_ta, modbus_ta_event_cb, LV_EVENT_DEFOCUSED, NULL);
-
-    lbl = lv_label_create(content); lv_label_set_text(lbl, "Port:");
-    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 10, 75);
-    modbus_port_ta = lv_textarea_create(content);
-    snprintf(tmp, sizeof(tmp), "%d", cfg.port);
-    lv_textarea_set_text(modbus_port_ta, tmp);
-    lv_obj_set_width(modbus_port_ta, LV_HOR_RES - 80);
-    lv_obj_align(modbus_port_ta, LV_ALIGN_TOP_LEFT, 10, 100);
-    lv_textarea_set_accepted_chars(modbus_port_ta, "0123456789");
-    lv_obj_add_event_cb(modbus_port_ta, modbus_ta_event_cb, LV_EVENT_FOCUSED,   NULL);
-    lv_obj_add_event_cb(modbus_port_ta, modbus_ta_event_cb, LV_EVENT_DEFOCUSED, NULL);
-
-    lbl = lv_label_create(content); lv_label_set_text(lbl, "Slave ID:");
-    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 10, 140);
-    modbus_slave_id_ta = lv_textarea_create(content);
-    snprintf(tmp, sizeof(tmp), "%d", cfg.slave_id);
-    lv_textarea_set_text(modbus_slave_id_ta, tmp);
-    lv_obj_set_width(modbus_slave_id_ta, LV_HOR_RES - 80);
-    lv_obj_align(modbus_slave_id_ta, LV_ALIGN_TOP_LEFT, 10, 165);
-    lv_textarea_set_accepted_chars(modbus_slave_id_ta, "0123456789");
-    lv_obj_add_event_cb(modbus_slave_id_ta, modbus_ta_event_cb, LV_EVENT_FOCUSED,   NULL);
-    lv_obj_add_event_cb(modbus_slave_id_ta, modbus_ta_event_cb, LV_EVENT_DEFOCUSED, NULL);
-
-    lbl = lv_label_create(content); lv_label_set_text(lbl, "Start Address:");
-    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 10, 205);
-    modbus_start_addr_ta = lv_textarea_create(content);
-    snprintf(tmp, sizeof(tmp), "%d", cfg.start_address);
-    lv_textarea_set_text(modbus_start_addr_ta, tmp);
-    lv_obj_set_width(modbus_start_addr_ta, LV_HOR_RES - 80);
-    lv_obj_align(modbus_start_addr_ta, LV_ALIGN_TOP_LEFT, 10, 230);
-    lv_textarea_set_accepted_chars(modbus_start_addr_ta, "0123456789");
-    lv_obj_add_event_cb(modbus_start_addr_ta, modbus_ta_event_cb, LV_EVENT_FOCUSED,   NULL);
-    lv_obj_add_event_cb(modbus_start_addr_ta, modbus_ta_event_cb, LV_EVENT_DEFOCUSED, NULL);
-
-    lbl = lv_label_create(content); lv_label_set_text(lbl, "Number of Registers:");
-    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 10, 270);
-    modbus_num_regs_ta = lv_textarea_create(content);
-    snprintf(tmp, sizeof(tmp), "%d", cfg.num_registers);
-    lv_textarea_set_text(modbus_num_regs_ta, tmp);
-    lv_obj_set_width(modbus_num_regs_ta, LV_HOR_RES - 80);
-    lv_obj_align(modbus_num_regs_ta, LV_ALIGN_TOP_LEFT, 10, 295);
-    lv_textarea_set_accepted_chars(modbus_num_regs_ta, "0123456789");
-    lv_obj_add_event_cb(modbus_num_regs_ta, modbus_ta_event_cb, LV_EVENT_FOCUSED,   NULL);
-    lv_obj_add_event_cb(modbus_num_regs_ta, modbus_ta_event_cb, LV_EVENT_DEFOCUSED, NULL);
-
-    lbl = lv_label_create(content); lv_label_set_text(lbl, "Enable Modbus:");
-    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 10, 335);
-    modbus_enable_sw = lv_switch_create(content);
-    if (cfg.enabled) lv_obj_add_state(modbus_enable_sw, LV_STATE_CHECKED);
-    lv_obj_align(modbus_enable_sw, LV_ALIGN_TOP_LEFT, 150, 330);
-
-    lv_obj_t *btn_cont = lv_obj_create(content);
-    lv_obj_set_size(btn_cont, LV_HOR_RES - 80, 50);
-    lv_obj_align(btn_cont, LV_ALIGN_TOP_LEFT, 10, 380);
-    lv_obj_set_layout(btn_cont, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(btn_cont, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(btn_cont, LV_FLEX_ALIGN_END,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-    lv_obj_t *save_btn = lv_button_create(btn_cont);
-    lv_obj_set_size(save_btn, 100, 36);
-    lv_obj_t *save_lbl = lv_label_create(save_btn);
-    lv_label_set_text(save_lbl, "Save");
-    lv_obj_center(save_lbl);
-    lv_obj_add_event_cb(save_btn, modbus_config_save_event_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *close_btn = lv_button_create(btn_cont);
-    lv_obj_set_size(close_btn, 100, 36);
-    lv_obj_t *close_lbl = lv_label_create(close_btn);
-    lv_label_set_text(close_lbl, "Close");
-    lv_obj_center(close_lbl);
-    lv_obj_add_event_cb(close_btn, modbus_config_close_event_cb, LV_EVENT_CLICKED, NULL);
-
-    modbus_keyboard = lv_keyboard_create(lv_screen_active());
-    lv_obj_set_size(modbus_keyboard, LV_HOR_RES, LV_VER_RES / 2);
-    lv_obj_align(modbus_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_add_flag(modbus_keyboard, LV_OBJ_FLAG_HIDDEN);
-}
-
-static void modbus_config_save_event_cb(lv_event_t *e)
-{
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-
-    modbus_config_t cfg;
-    if (!modbus_ip_ta || !modbus_port_ta || !modbus_slave_id_ta ||
-        !modbus_start_addr_ta || !modbus_num_regs_ta || !modbus_enable_sw)
-        return;
-
-    const char *ip = lv_textarea_get_text(modbus_ip_ta);
-    strncpy(cfg.ip_address, ip ? ip : "", MODBUS_MAX_IP_LEN - 1);
-    cfg.ip_address[MODBUS_MAX_IP_LEN - 1] = '\0';
-
-    cfg.port          = (uint16_t)atoi(lv_textarea_get_text(modbus_port_ta));
-    cfg.slave_id      = (uint8_t) atoi(lv_textarea_get_text(modbus_slave_id_ta));
-    cfg.start_address = (uint16_t)atoi(lv_textarea_get_text(modbus_start_addr_ta));
-    cfg.num_registers = (uint16_t)atoi(lv_textarea_get_text(modbus_num_regs_ta));
-    cfg.enabled       = lv_obj_has_state(modbus_enable_sw, LV_STATE_CHECKED);
-
-    fprintf(stderr, "[MODBUS] save: %s:%u slave=%u start=%u nregs=%u en=%d\n",
-            cfg.ip_address, cfg.port, cfg.slave_id, cfg.start_address,
-            cfg.num_registers, cfg.enabled);
-
-    mb_set_config(&cfg);
-    mb_disconnect();
-    if (cfg.enabled) mb_connect(&cfg);
-
-    if (modbus_keyboard)    { lv_obj_del(modbus_keyboard);    modbus_keyboard    = NULL; }
-    if (modbus_config_modal){ lv_obj_del(modbus_config_modal); modbus_config_modal = NULL; }
-}
-
-static void modbus_config_close_event_cb(lv_event_t *e)
-{
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (modbus_keyboard)    { lv_obj_del(modbus_keyboard);    modbus_keyboard    = NULL; }
-    if (modbus_config_modal){ lv_obj_del(modbus_config_modal); modbus_config_modal = NULL; }
-}
-
-static void modbus_ta_event_cb(lv_event_t *e)
-{
-    lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t *ta = lv_event_get_target(e);
-
-    if (code == LV_EVENT_FOCUSED && modbus_keyboard) {
-        lv_keyboard_set_textarea(modbus_keyboard, ta);
-        if (ta == modbus_port_ta || ta == modbus_slave_id_ta ||
-            ta == modbus_start_addr_ta || ta == modbus_num_regs_ta) {
-            lv_keyboard_set_mode(modbus_keyboard, LV_KEYBOARD_MODE_NUMBER);
-        } else {
-            lv_keyboard_set_mode(modbus_keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
-        }
-        lv_obj_clear_flag(modbus_keyboard, LV_OBJ_FLAG_HIDDEN);
-    } else if (code == LV_EVENT_DEFOCUSED && modbus_keyboard) {
-        lv_obj_add_flag(modbus_keyboard, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -1522,8 +1353,6 @@ static void ui_build(void)
 static void ui_rebuild(void)
 {
     /* Drop any open modal/keyboard references — they got deleted with the screen */
-    modbus_config_modal = NULL;
-    modbus_keyboard     = NULL;
     netcfg_modal        = NULL;
     netcfg_keyboard     = NULL;
     netcfg_status_lbl   = NULL;

@@ -10,6 +10,7 @@ inherit packagegroup
 COMPATIBLE_MACHINE = "^rpi$"
 
 RDEPENDS:${PN} = "\
+    libmdcu-pool \
     plc-firmware \
     miniplc-hmi \
     mini-plc-web \

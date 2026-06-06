@@ -1,5 +1,5 @@
 SUMMARY = "Light and Versatile Graphics Library"
-PR = "r5"
+PR = "r6"
 DESCRIPTION = "LVGL is a free and open-source graphics library for embedded GUI systems."
 HOMEPAGE = "https://lvgl.io"
 LICENSE = "MIT"
