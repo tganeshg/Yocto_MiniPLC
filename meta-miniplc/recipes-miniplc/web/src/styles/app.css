@@ -1,0 +1,259 @@
+/*
+ * App shell styling --- presentation layer.
+ * Reads ONLY --mdcu-* tokens (never hardcoded colours), so a theme
+ * swap requires no edits here.
+ */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--mdcu-bg);
+  color: var(--mdcu-text);
+  font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- layout grid ---- */
+.mdcu-shell {
+  display: grid;
+  grid-template-columns: var(--mdcu-sidebar-w) 1fr;
+  grid-template-rows: var(--mdcu-topbar-h) 1fr;
+  grid-template-areas:
+    "sidebar topbar"
+    "sidebar main";
+  min-height: 100vh;
+}
+
+.mdcu-sidebar {
+  grid-area: sidebar;
+  background: var(--mdcu-surface);
+  border-right: 1px solid var(--mdcu-border);
+  padding: 1rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.mdcu-topbar {
+  grid-area: topbar;
+  background: var(--mdcu-surface);
+  border-bottom: 1px solid var(--mdcu-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.25rem;
+}
+
+.mdcu-main {
+  grid-area: main;
+  padding: 1.25rem;
+  overflow: auto;
+}
+
+/* Hamburger + backdrop are desktop-hidden; revealed in the drawer breakpoint.
+ * Scoped to .mdcu-topbar so this beats the later `.mdcu-iconbtn{display:grid}`
+ * rule on the shared element (same-specificity, source-order otherwise wins). */
+.mdcu-topbar .mdcu-navtoggle {
+  display: none;
+}
+.mdcu-backdrop {
+  display: none;
+}
+
+/* ---- responsive: collapse sidebar into an off-canvas drawer ----
+ * Keep the fixed sidebar down to the md breakpoint (tablet landscape and up);
+ * only phones (< 768px) get the off-canvas drawer. */
+@media (max-width: 767.98px) {
+  .mdcu-shell {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "topbar"
+      "main";
+  }
+
+  .mdcu-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: var(--mdcu-sidebar-w);
+    z-index: 1050;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    overflow-y: auto;
+  }
+  .mdcu-sidebar.is-open {
+    transform: translateX(0);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.35);
+  }
+
+  .mdcu-topbar .mdcu-navtoggle {
+    display: grid;
+  }
+
+  .mdcu-shell.nav-open .mdcu-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1040;
+    background: rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* ---- brand ---- */
+.mdcu-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--mdcu-primary-700);
+  padding: 0.25rem 0.5rem 0.75rem;
+}
+.mdcu-brand .bi {
+  color: var(--mdcu-primary);
+  font-size: 1.4rem;
+}
+
+/* ---- nav ---- */
+.mdcu-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  color: var(--mdcu-text-muted);
+  text-decoration: none;
+  font-size: 0.93rem;
+  font-weight: 500;
+}
+.mdcu-nav-link:hover {
+  background: var(--mdcu-surface-2);
+  color: var(--mdcu-text);
+}
+.mdcu-nav-link.active {
+  background: color-mix(in srgb, var(--mdcu-primary) 14%, transparent);
+  color: var(--mdcu-primary);
+}
+.mdcu-nav-link .bi {
+  font-size: 1.05rem;
+}
+.mdcu-nav-section {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mdcu-text-muted);
+  padding: 0.9rem 0.75rem 0.35rem;
+}
+
+/* ---- collapsible nav groups ---- */
+.mdcu-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+/* a group's parent is a <button>, so reset the native button chrome */
+.mdcu-nav-parent {
+  width: 100%;
+  background: transparent;
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mdcu-nav-link .mdcu-nav-caret {
+  margin-left: auto;
+  font-size: 0.78rem;
+  transition: transform 0.18s ease;
+}
+.mdcu-nav-parent.is-open .mdcu-nav-caret {
+  transform: rotate(180deg);
+}
+.mdcu-nav-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin: 0.15rem 0 0.25rem 0.95rem;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--mdcu-border);
+}
+.mdcu-nav-child {
+  font-size: 0.88rem;
+  padding: 0.42rem 0.6rem;
+}
+
+/* sidebar footer credit --- pinned to the bottom of the flex column */
+.mdcu-nav-credit {
+  margin-top: auto;
+  padding: 0.75rem 0.75rem 0.25rem;
+  font-size: 0.72rem;
+  color: var(--mdcu-text-muted);
+  border-top: 1px solid var(--mdcu-border);
+}
+
+/* ---- cards ---- */
+.mdcu-card {
+  background: var(--mdcu-surface);
+  border: 1px solid var(--mdcu-border);
+  border-radius: var(--mdcu-radius);
+  box-shadow: var(--mdcu-shadow);
+  padding: 1rem 1.1rem;
+}
+.mdcu-stat-label {
+  color: var(--mdcu-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mdcu-stat-value {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--mdcu-text);
+  line-height: 1.2;
+}
+.mdcu-stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 1.3rem;
+  background: color-mix(in srgb, var(--mdcu-primary) 14%, transparent);
+  color: var(--mdcu-primary);
+}
+
+/* ---- misc ---- */
+.mdcu-iconbtn {
+  background: transparent;
+  border: 1px solid var(--mdcu-border);
+  color: var(--mdcu-text);
+  border-radius: 8px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.mdcu-iconbtn:hover {
+  background: var(--mdcu-surface-2);
+}
+.mdcu-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+}
+.mdcu-pill-demo {
+  background: color-mix(in srgb, var(--mdcu-warning) 18%, transparent);
+  color: var(--mdcu-warning);
+}
+.mdcu-pill-live {
+  background: color-mix(in srgb, var(--mdcu-accent) 18%, transparent);
+  color: var(--mdcu-accent);
+}

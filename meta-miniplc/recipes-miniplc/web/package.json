@@ -1,0 +1,26 @@
+{
+  "name": "mini-plc-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MDCU browser configurator (Vite + React + Bootstrap 5). Sole protocol-configuration surface for the MDCU platform.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "dist": "vite build && tar -czf web-dist.tar.gz -C dist ."
+  },
+  "dependencies": {
+    "apexcharts": "^4.3.0",
+    "bootstrap": "^5.3.3",
+    "bootstrap-icons": "^1.11.3",
+    "react": "^18.3.1",
+    "react-apexcharts": "^1.4.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.8"
+  }
+}

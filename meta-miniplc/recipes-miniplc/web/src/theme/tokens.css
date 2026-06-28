@@ -1,0 +1,68 @@
+/*
+ * MDCU theme tokens  ---  THE SWAPPABLE LAYER
+ * ------------------------------------------------------------------
+ * Everything visual is expressed as CSS custom properties here.
+ *
+ * Level-1 re-skin (colours / brand / density / light-dark): edit ONLY
+ *   this file. No component changes required.
+ * Level-2 template swap (e.g. a different admin kit): replace the
+ *   presentational components + this token file; the data/logic layer
+ *   (src/api, src/domain, src/hooks) is untouched.
+ *
+ * Components must NEVER hardcode a brand colour --- always reference a
+ * --mdcu-* token (or a Bootstrap CSS var) so a theme change stays a
+ * presentation-only job.
+ *
+ * We also set Bootstrap 5.3's own color-mode var bridge so the stock
+ * Bootstrap components follow our light/dark switch for free.
+ */
+
+:root,
+[data-mdcu-theme="light"] {
+  /* brand */
+  --mdcu-primary: #2e75b6;
+  --mdcu-primary-700: #1f3864;
+  --mdcu-accent: #16a34a;
+  --mdcu-danger: #dc2626;
+  --mdcu-warning: #d97706;
+
+  /* surfaces */
+  --mdcu-bg: #f4f6fa;
+  --mdcu-surface: #ffffff;
+  --mdcu-surface-2: #eef2f7;
+  --mdcu-border: #dbe2ea;
+
+  /* text */
+  --mdcu-text: #1f2733;
+  --mdcu-text-muted: #6b7785;
+
+  /* layout metrics */
+  --mdcu-sidebar-w: 248px;
+  --mdcu-topbar-h: 60px;
+  --mdcu-radius: 12px;
+  --mdcu-gap: 1rem;
+  --mdcu-shadow: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.06);
+
+  /* bridge -> Bootstrap 5.3 color mode */
+  color-scheme: light;
+}
+
+[data-mdcu-theme="dark"] {
+  --mdcu-primary: #4f9fe0;
+  --mdcu-primary-700: #9cc3ec;
+  --mdcu-accent: #34d399;
+  --mdcu-danger: #f87171;
+  --mdcu-warning: #fbbf24;
+
+  --mdcu-bg: #0f141b;
+  --mdcu-surface: #171e27;
+  --mdcu-surface-2: #1f2935;
+  --mdcu-border: #2b3744;
+
+  --mdcu-text: #e6edf3;
+  --mdcu-text-muted: #9aa7b4;
+
+  --mdcu-shadow: 0 1px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.4);
+
+  color-scheme: dark;
+}
