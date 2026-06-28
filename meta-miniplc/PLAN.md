@@ -12,7 +12,7 @@
 | Component | Location in this layer | Role |
 |-----------|------------------------|------|
 | **LVGL HMI** (`miniplc-hmi`) | `recipes-miniplc/miniplc-hmi/` | Local touchscreen UI |
-| **PLC Firmware** (`plc-firmware`) | `recipes-miniplc/plc_firmware/` | REST API + ladder runtime |
+| **PLC Firmware** (`plc-firmware`) | `recipes-miniplc/plc-firmware-src/` | REST API + ladder runtime |
 | **Web UI** (`mini-plc-web`) | `recipes-miniplc/mini-plc-web/` | Browser-based PLC programmer |
 
 **Protocol role on the RPi:** CLIENT / MASTER for all industrial protocols
@@ -203,10 +203,10 @@ configure and monitor them via REST.
 
 | Path | Change |
 |------|--------|
-| `plc_firmware/api/rest_api.c` | Add routes (see below) |
-| `plc_firmware/plugin/plugin_api.c` | Implement `GET /api/plugins` to list registered protocols |
-| `plc_firmware/protocols/modbus_client.c` (new) | libmodbus polling loop, reuses Phase 1 patterns |
-| `plc_firmware/protocols/dlms_client.c` (new) | gurux.dlms polling loop |
+| `plc-firmware-src/api/rest_api.c` | Add routes (see below) |
+| `plc-firmware-src/plugin/plugin_api.c` | Implement `GET /api/plugins` to list registered protocols |
+| `plc-firmware-src/protocols/modbus_client.c` (new) | libmodbus polling loop, reuses Phase 1 patterns |
+| `plc-firmware-src/protocols/dlms_client.c` (new) | gurux.dlms polling loop |
 
 ### REST routes
 
@@ -294,7 +294,7 @@ environment variables.
 - `dlms.c/h` — **Phase 2**
 - `CMakeLists.txt` — already wires lvgl + libmodbus + libdrm; needs gurux later
 
-### PLC firmware — `recipes-miniplc/plc_firmware/`
+### PLC firmware — `recipes-miniplc/plc-firmware-src/`
 - `api/rest_api.c` — **Phase 3** new routes
 - `plugin/plugin_api.c` — **Phase 3** plugin listing
 - `protocols/modbus_client.c` — **Phase 3 NEW**
