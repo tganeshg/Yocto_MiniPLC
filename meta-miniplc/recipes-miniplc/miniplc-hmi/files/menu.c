@@ -14,7 +14,6 @@
 #include <string.h>
 #include <time.h>
 #include <sys/sysinfo.h>
-#include <sys/statvfs.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -62,6 +61,15 @@ static bool theme_dark = true;
 
 #define MODBUS_POLL_INTERVAL_MS 1000
 
+/* Device identity — placeholders until wired to firmware/API. */
+#define DEV_MODEL   "FXD-iX-R1"
+#define DEV_FW      "v0.4.1"
+#define DEV_UI      "v0.1.0"
+#define DEV_SERIAL  "FX24-000137"
+
+/* Memory gauge accent (violet) — matches the web Overview. */
+#define COL_MEM_HEX 0x7a63e0
+
 /**********************
  *      TYPEDEFS
  **********************/
@@ -72,6 +80,13 @@ typedef struct {
     lv_obj_t *subtitle;
     lv_obj_t *led;
 } tile_t;
+
+/* Overview arc-ring gauge (CPU load / temp / memory). */
+typedef struct {
+    lv_obj_t *arc;
+    lv_obj_t *value;   /* big number in the ring centre */
+    lv_obj_t *unit;    /* small unit under the number   */
+} gauge_t;
 
 /**********************
  *  STATIC VARIABLES
@@ -100,12 +115,11 @@ static lv_obj_t *rtc_date_lbl  = NULL;
 static lv_obj_t *tabview       = NULL;
 static lv_obj_t *tab_pages[mm_count];
 
-/* Overview tiles */
-static tile_t ov_cpu_temp, ov_datetime, ov_uptime, ov_memory, ov_network, ov_storage;
-
-/* Network tile custom layout (keys/values columns) */
-static lv_obj_t *ov_net_keys = NULL;
-static lv_obj_t *ov_net_vals = NULL;
+/* Overview — device card + arc gauges + network/protocol strip */
+static gauge_t   ov_g_load, ov_g_temp, ov_g_mem;
+static lv_obj_t *ov_dev_vals = NULL;   /* device card values (incl. live uptime) */
+static lv_obj_t *ov_net_vals = NULL;   /* network 4-row values label */
+static lv_obj_t *ov_net_led  = NULL;   /* LAN link status LED */
 
 /* PLC tiles */
 static tile_t plc_state, plc_cycle, plc_inputs, plc_outputs, plc_program, plc_runtime;
@@ -484,17 +498,28 @@ static void header_create(lv_obj_t *parent)
     lv_image_set_src(logo, &img_lvgl_logo);
     lv_obj_align(logo, LV_ALIGN_LEFT_MID, 12, 0);
 
-    /* Product title + subtitle */
-    lv_obj_t *title = lv_label_create(hdr);
-    lv_obj_set_style_text_font(title, font_large, 0);
-    lv_obj_set_style_text_color(title, COL_TEXT, 0);
-    lv_label_set_text_fmt(title, "MiniHMI v%d.%d.%d",
-                          MDCU_MAJOR_VER, MDCU_MINOR_VER, MDCU_BUILD_VER);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 80, -10);
+    /* Product title — two-tone "FlexiDon iX" (Don = accent). */
+    lv_obj_t *b1 = lv_label_create(hdr);
+    lv_obj_set_style_text_font(b1, font_large, 0);
+    lv_obj_set_style_text_color(b1, COL_TEXT, 0);
+    lv_label_set_text(b1, "Flexi");
+    lv_obj_align(b1, LV_ALIGN_LEFT_MID, 80, -10);
+
+    lv_obj_t *b2 = lv_label_create(hdr);
+    lv_obj_set_style_text_font(b2, font_large, 0);
+    lv_obj_set_style_text_color(b2, COL_ACCENT, 0);
+    lv_label_set_text(b2, "Don");
+    lv_obj_align_to(b2, b1, LV_ALIGN_OUT_RIGHT_MID, 0, 0);
+
+    lv_obj_t *b3 = lv_label_create(hdr);
+    lv_obj_set_style_text_font(b3, font_large, 0);
+    lv_obj_set_style_text_color(b3, COL_TEXT, 0);
+    lv_label_set_text(b3, " iX");
+    lv_obj_align_to(b3, b2, LV_ALIGN_OUT_RIGHT_MID, 0, 0);
 
     lv_obj_t *sub = lv_label_create(hdr);
     lv_obj_set_style_text_color(sub, COL_TEXT_MUTED, 0);
-    lv_label_set_text(sub, "Industrial HMI / PLC Controller");
+    lv_label_set_text(sub, "Flexible Data Collector & Controller");
     lv_obj_align(sub, LV_ALIGN_LEFT_MID, 80, 12);
 
     /* Clock on the right */
@@ -515,44 +540,204 @@ static void header_create(lv_obj_t *parent)
 /*****************************
  *         TABS
  *****************************/
+/* ---- Overview widgets (arc gauges + cards) ------------------------- */
+static gauge_t create_gauge(lv_obj_t *parent, int32_t x, int32_t y,
+                            int32_t w, int32_t h, const char *label,
+                            const char *unit, lv_color_t color)
+{
+    gauge_t g = { 0 };
+
+    lv_obj_t *card = lv_obj_create(parent);
+    lv_obj_remove_style_all(card);
+    lv_obj_add_style(card, &style_tile, 0);
+    lv_obj_set_size(card, w, h);
+    lv_obj_set_pos(card, x, y);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *arc = lv_arc_create(card);
+    lv_obj_set_size(arc, 116, 116);
+    lv_obj_align(arc, LV_ALIGN_TOP_MID, 0, 4);
+    lv_arc_set_rotation(arc, 135);
+    lv_arc_set_bg_angles(arc, 0, 270);
+    lv_arc_set_range(arc, 0, 100);
+    lv_arc_set_value(arc, 0);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_width(arc, 12, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, COL_TILE_BORDER, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 12, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, color, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(arc, true, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(arc, 0, LV_PART_KNOB);
+
+    g.value = lv_label_create(card);
+    lv_obj_set_style_text_font(g.value, font_large, 0);
+    lv_obj_set_style_text_color(g.value, COL_TEXT, 0);
+    lv_label_set_text(g.value, "--");
+    lv_obj_align_to(g.value, arc, LV_ALIGN_CENTER, 0, -8);
+
+    g.unit = lv_label_create(card);
+    lv_obj_set_style_text_color(g.unit, COL_TEXT_MUTED, 0);
+    lv_label_set_text(g.unit, unit ? unit : "");
+    lv_obj_align_to(g.unit, arc, LV_ALIGN_CENTER, 0, 16);
+
+    lv_obj_t *lbl = lv_label_create(card);
+    lv_obj_set_style_text_color(lbl, COL_TEXT_MUTED, 0);
+    lv_label_set_text(lbl, label ? label : "");
+    lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, 0);
+
+    g.arc = arc;
+    return g;
+}
+
+static void set_gauge(gauge_t *g, int pct, const char *val, lv_color_t col)
+{
+    if (!g || !g->arc) return;
+    if (pct < 0)   pct = 0;
+    if (pct > 100) pct = 100;
+    lv_arc_set_value(g->arc, pct);
+    lv_obj_set_style_arc_color(g->arc, col, LV_PART_INDICATOR);
+    if (g->value && val) {
+        lv_label_set_text(g->value, val);
+        lv_obj_align_to(g->value, g->arc, LV_ALIGN_CENTER, 0, -8);
+    }
+}
+
+static lv_obj_t *create_card(lv_obj_t *parent, int32_t x, int32_t y,
+                             int32_t w, int32_t h, const char *clabel)
+{
+    lv_obj_t *card = lv_obj_create(parent);
+    lv_obj_remove_style_all(card);
+    lv_obj_add_style(card, &style_tile, 0);
+    lv_obj_set_size(card, w, h);
+    lv_obj_set_pos(card, x, y);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    if (clabel) {
+        lv_obj_t *l = lv_label_create(card);
+        lv_obj_add_style(l, &style_tile_title, 0);
+        lv_label_set_text(l, clabel);
+        lv_obj_align(l, LV_ALIGN_TOP_LEFT, 0, 0);
+    }
+    return card;
+}
+
+static void create_proto_tile(lv_obj_t *parent, int32_t x, int32_t y,
+                              int32_t w, int32_t h, const char *name,
+                              const char *status, lv_color_t led)
+{
+    lv_obj_t *t = lv_obj_create(parent);
+    lv_obj_remove_style_all(t);
+    lv_obj_set_size(t, w, h);
+    lv_obj_set_pos(t, x, y);
+    lv_obj_set_style_bg_color(t, COL_BG_SCREEN, 0);
+    lv_obj_set_style_bg_opa(t, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(t, COL_TILE_BORDER, 0);
+    lv_obj_set_style_border_width(t, 1, 0);
+    lv_obj_set_style_radius(t, 7, 0);
+    lv_obj_set_style_pad_all(t, 7, 0);
+    lv_obj_clear_flag(t, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *nm = lv_label_create(t);
+    lv_obj_set_style_text_color(nm, COL_TEXT, 0);
+    lv_label_set_text(nm, name);
+    lv_obj_align(nm, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t *dot = lv_obj_create(t);
+    lv_obj_remove_style_all(dot);
+    lv_obj_set_size(dot, 9, 9);
+    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(dot, led, 0);
+    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+    lv_obj_align(dot, LV_ALIGN_BOTTOM_LEFT, 0, -2);
+
+    lv_obj_t *st = lv_label_create(t);
+    lv_obj_set_style_text_color(st, COL_TEXT_MUTED, 0);
+    lv_label_set_text(st, status);
+    lv_obj_align(st, LV_ALIGN_BOTTOM_LEFT, 16, 0);
+}
+
 static void overview_create(lv_obj_t *parent)
 {
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_pad_all(parent, 0, 0);
     lv_obj_set_style_bg_color(parent, COL_BG_SCREEN, 0);
 
-    ov_cpu_temp = create_tile(parent, 0, 0, "CPU TEMP",    "--.- C",  "thermal_zone0");
-    ov_datetime = create_tile(parent, 1, 0, "DATE / TIME", "--:--:--","--/--/----");
-    ov_uptime   = create_tile(parent, 2, 0, "UPTIME",      "--",      "system boot");
-    ov_memory   = create_tile(parent, 0, 1, "MEMORY FREE", "-- MB",   "RAM available");
-    ov_network  = create_tile(parent, 1, 1, "NETWORK",     "",        "");
-    /* Replace the default centered "value" + bottom "subtitle" with a
-     * 2-column (key / value) list:
-     *     Ethernet   Up / Down
-     *     IP         x.x.x.x
-     *     GW         x.x.x.x
-     *     DNS        x.x.x.x
-     */
-    lv_obj_add_flag(ov_network.value,    LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ov_network.subtitle, LV_OBJ_FLAG_HIDDEN);
+    /* ---- Hero row: device identity card + 3 arc gauges ---- */
+    lv_obj_t *dev = create_card(parent, 8, 8, 300, 194, NULL);
 
-    ov_net_keys = lv_label_create(ov_network.root);
-    lv_obj_set_style_text_font (ov_net_keys, font_normal,    0);
-    lv_obj_set_style_text_color(ov_net_keys, COL_TEXT_MUTED, 0);
-    lv_obj_set_style_text_line_space(ov_net_keys, 4, 0);
-    lv_label_set_text(ov_net_keys, "Ethernet\nIP\nGW\nDNS");
-    lv_obj_align(ov_net_keys, LV_ALIGN_TOP_LEFT, 0, 26);
+    lv_obj_t *ic = lv_obj_create(dev);
+    lv_obj_remove_style_all(ic);
+    lv_obj_set_size(ic, 36, 36);
+    lv_obj_set_style_radius(ic, 9, 0);
+    lv_obj_set_style_bg_color(ic, COL_ACCENT, 0);
+    lv_obj_set_style_bg_opa(ic, LV_OPA_COVER, 0);
+    lv_obj_align(ic, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_t *icl = lv_label_create(ic);
+    lv_obj_set_style_text_color(icl, lv_color_white(), 0);
+    lv_label_set_text(icl, LV_SYMBOL_LIST);
+    lv_obj_center(icl);
 
-    ov_net_vals = lv_label_create(ov_network.root);
-    lv_obj_set_style_text_font (ov_net_vals, font_normal, 0);
-    lv_obj_set_style_text_color(ov_net_vals, COL_TEXT,    0);
-    lv_obj_set_style_text_line_space(ov_net_vals, 4, 0);
-    lv_label_set_long_mode(ov_net_vals, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(ov_net_vals, TILE_W - 105);
+    lv_obj_t *dt = lv_label_create(dev);
+    lv_obj_set_style_text_font(dt, font_large, 0);
+    lv_obj_set_style_text_color(dt, COL_TEXT, 0);
+    lv_label_set_text(dt, "Device");
+    lv_obj_align(dt, LV_ALIGN_TOP_LEFT, 46, -2);
+
+    lv_obj_t *dsub = lv_label_create(dev);
+    lv_obj_set_style_text_color(dsub, COL_TEXT_MUTED, 0);
+    lv_label_set_text(dsub, "FlexiDon iX");
+    lv_obj_align(dsub, LV_ALIGN_TOP_LEFT, 46, 28);
+
+    lv_obj_t *keys = lv_label_create(dev);
+    lv_obj_set_style_text_color(keys, COL_TEXT_MUTED, 0);
+    lv_obj_set_style_text_line_space(keys, 6, 0);
+    lv_label_set_text(keys, "Model\nFirmware\nUI\nSerial\nUptime");
+    lv_obj_align(keys, LV_ALIGN_TOP_LEFT, 0, 60);
+
+    ov_dev_vals = lv_label_create(dev);
+    lv_obj_set_style_text_color(ov_dev_vals, COL_TEXT, 0);
+    lv_obj_set_style_text_line_space(ov_dev_vals, 6, 0);
+    lv_obj_set_width(ov_dev_vals, 190);
+    lv_obj_set_style_text_align(ov_dev_vals, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_text(ov_dev_vals,
+                      DEV_MODEL "\n" DEV_FW "\n" DEV_UI "\n" DEV_SERIAL "\n--:--:--");
+    lv_obj_align(ov_dev_vals, LV_ALIGN_TOP_RIGHT, 0, 60);
+
+    ov_g_load = create_gauge(parent, 316, 8, 152, 194, "CPU LOAD", "LOAD", COL_ACCENT);
+    ov_g_temp = create_gauge(parent, 476, 8, 152, 194, "CPU TEMP", "TEMP", COL_LED_GREEN);
+    ov_g_mem  = create_gauge(parent, 636, 8, 156, 194, "MEMORY",   "RAM",
+                             lv_color_hex(COL_MEM_HEX));
+
+    /* ---- Bottom strip: network / uplink + protocol status ---- */
+    lv_obj_t *net = create_card(parent, 8, 210, 384, 156, "NETWORK / UPLINK");
+    ov_net_led = lv_obj_create(net);
+    lv_obj_remove_style_all(ov_net_led);
+    lv_obj_set_size(ov_net_led, 10, 10);
+    lv_obj_set_style_radius(ov_net_led, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(ov_net_led, COL_LED_OFF, 0);
+    lv_obj_set_style_bg_opa(ov_net_led, LV_OPA_COVER, 0);
+    lv_obj_align(ov_net_led, LV_ALIGN_TOP_RIGHT, 0, 4);
+
+    lv_obj_t *nkeys = lv_label_create(net);
+    lv_obj_set_style_text_color(nkeys, COL_TEXT_MUTED, 0);
+    lv_obj_set_style_text_line_space(nkeys, 8, 0);
+    lv_label_set_text(nkeys, "LAN 1\nIP Address\nGateway\nDNS");
+    lv_obj_align(nkeys, LV_ALIGN_TOP_LEFT, 0, 30);
+
+    ov_net_vals = lv_label_create(net);
+    lv_obj_set_style_text_color(ov_net_vals, COL_TEXT, 0);
+    lv_obj_set_style_text_line_space(ov_net_vals, 8, 0);
+    lv_obj_set_width(ov_net_vals, 200);
+    lv_obj_set_style_text_align(ov_net_vals, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_long_mode(ov_net_vals, LV_LABEL_LONG_CLIP);
     lv_label_set_text(ov_net_vals, "--\n--\n--\n--");
-    lv_obj_align(ov_net_vals, LV_ALIGN_TOP_LEFT, 85, 26);
+    lv_obj_align(ov_net_vals, LV_ALIGN_TOP_RIGHT, 0, 30);
 
-    ov_storage  = create_tile(parent, 2, 1, "STORAGE",     "-- MB",   "/ free");
+    lv_obj_t *proto = create_card(parent, 400, 210, 392, 156, "PROTOCOL STATUS");
+    create_proto_tile(proto,   0, 22, 180, 54, "Modbus TCP",  "Running",   COL_LED_GREEN);
+    create_proto_tile(proto, 192, 22, 180, 54, "MQTT",        "Connected", COL_LED_GREEN);
+    create_proto_tile(proto,   0, 82, 180, 54, "OPC UA",      "Idle",      COL_LED_YELLOW);
+    create_proto_tile(proto, 192, 82, 180, 54, "PLC Runtime", "5 ms",      COL_LED_GREEN);
 }
 
 static void plc_create(lv_obj_t *parent)
@@ -701,18 +886,19 @@ static void tabview_event_cb(lv_event_t *e)
 static void overview_update(void)
 {
     char buf[64];
+
+    /* ---- CPU temperature gauge ---- */
     float t = 0.0f;
     int   have_temp = (read_cpu_temperature_c(&t) == 0);
-
     if (have_temp) {
-        snprintf(buf, sizeof(buf), "%.1f C", t);
-        set_tile_value(&ov_cpu_temp, buf);
-        if (t < 60.0f)      set_tile_led(&ov_cpu_temp, COL_LED_GREEN);
-        else if (t < 75.0f) set_tile_led(&ov_cpu_temp, COL_LED_YELLOW);
-        else                set_tile_led(&ov_cpu_temp, COL_LED_RED);
+        int pct = (int)((t / 85.0f) * 100.0f);
+        lv_color_t c = (t >= 75.0f) ? COL_LED_RED
+                     : (t >= 60.0f) ? COL_LED_YELLOW
+                                    : COL_LED_GREEN;
+        snprintf(buf, sizeof(buf), "%d\xC2\xB0", (int)(t + 0.5f));
+        set_gauge(&ov_g_temp, pct, buf, c);
     } else {
-        set_tile_value(&ov_cpu_temp, "N/A");
-        set_tile_led(&ov_cpu_temp, COL_LED_OFF);
+        set_gauge(&ov_g_temp, 0, "N/A", COL_LED_OFF);
     }
 
     /* Mirror system metrics into the SYS range of the pool so every other
@@ -726,39 +912,42 @@ static void overview_update(void)
                      (uint16_t)(mdcu_get_u16(MDCU_SYS_HEARTBEAT) + 1U));
     }
 
-    if (timeinfo) {
-        snprintf(buf, sizeof(buf), "%02d:%02d:%02d",
-                 timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
-        set_tile_value(&ov_datetime, buf);
-        snprintf(buf, sizeof(buf), "%02d/%02d/%04d",
-                 timeinfo->tm_mday, timeinfo->tm_mon + 1, timeinfo->tm_year + 1900);
-        set_tile_subtitle(&ov_datetime, buf);
-    }
-
+    /* ---- CPU load + memory gauges, device-card uptime ---- */
     struct sysinfo si;
     if (sysinfo(&si) == 0) {
-        unsigned long up = si.uptime;
-        unsigned long h = up / 3600, m = (up % 3600) / 60, s = up % 60;
-        snprintf(buf, sizeof(buf), "%lu:%02lu:%02lu", h, m, s);
-        set_tile_value(&ov_uptime, buf);
-        set_tile_led(&ov_uptime, COL_LED_GREEN);
+        int ncpu = get_nprocs();
+        if (ncpu < 1) ncpu = 1;
+        float load1    = si.loads[0] / 65536.0f;      /* 1-min load average */
+        int   load_pct = (int)((load1 / ncpu) * 100.0f);
+        if (load_pct > 100) load_pct = 100;
+        snprintf(buf, sizeof(buf), "%d%%", load_pct);
+        set_gauge(&ov_g_load, load_pct, buf, COL_ACCENT);
 
-        unsigned long mb_free = (si.freeram * (unsigned long long)si.mem_unit) / (1024UL * 1024UL);
-        snprintf(buf, sizeof(buf), "%lu MB", mb_free);
-        set_tile_value(&ov_memory, buf);
-        if      (mb_free > 64) set_tile_led(&ov_memory, COL_LED_GREEN);
-        else if (mb_free > 16) set_tile_led(&ov_memory, COL_LED_YELLOW);
-        else                   set_tile_led(&ov_memory, COL_LED_RED);
+        unsigned long long total = (unsigned long long)si.totalram * si.mem_unit;
+        unsigned long long freeb = (unsigned long long)si.freeram  * si.mem_unit;
+        int mem_pct = total ? (int)(((total - freeb) * 100ULL) / total) : 0;
+        snprintf(buf, sizeof(buf), "%d%%", mem_pct);
+        set_gauge(&ov_g_mem, mem_pct, buf, lv_color_hex(COL_MEM_HEX));
+
+        unsigned long up = si.uptime;
+        snprintf(buf, sizeof(buf), "%02lu:%02lu:%02lu",
+                 up / 3600, (up % 3600) / 60, up % 60);
+        if (ov_dev_vals) {
+            char v[160];
+            snprintf(v, sizeof(v), "%s\n%s\n%s\n%s\n%s",
+                     DEV_MODEL, DEV_FW, DEV_UI, DEV_SERIAL, buf);
+            lv_label_set_text(ov_dev_vals, v);
+        }
 
         if (mdcu_pool_is_open())
             mdcu_set_u32(MDCU_SYS_UPTIME_SEC, (uint32_t)si.uptime);
     }
 
-    /* Network — 4-row key/value list:
-     *     Ethernet   Up / Down
-     *     IP         x.x.x.x
-     *     GW         x.x.x.x
-     *     DNS        x.x.x.x
+    /* ---- Network / uplink — 4-row key/value list + status LED ----
+     *     LAN 1        Up / Down
+     *     IP Address   x.x.x.x
+     *     Gateway      x.x.x.x
+     *     DNS          x.x.x.x
      * LED: green = carrier up + has IP; yellow = carrier up but no IP;
      *      red = no carrier / link down. */
     {
@@ -790,17 +979,12 @@ static void overview_update(void)
             lv_label_set_text(ov_net_vals, vbuf);
         }
 
-        if (has_ip && carrier != 0)        set_tile_led(&ov_network, COL_LED_GREEN);
-        else if (carrier == 0)             set_tile_led(&ov_network, COL_LED_RED);
-        else                               set_tile_led(&ov_network, COL_LED_YELLOW);
-    }
-
-    struct statvfs vfs;
-    if (statvfs("/", &vfs) == 0) {
-        unsigned long mb_free = (unsigned long)((vfs.f_bavail * (unsigned long long)vfs.f_frsize) / (1024UL * 1024UL));
-        snprintf(buf, sizeof(buf), "%lu MB", mb_free);
-        set_tile_value(&ov_storage, buf);
-        set_tile_led(&ov_storage, COL_LED_GREEN);
+        if (ov_net_led) {
+            lv_color_t c = (has_ip && carrier != 0) ? COL_LED_GREEN
+                         : (carrier == 0)           ? COL_LED_RED
+                                                    : COL_LED_YELLOW;
+            lv_obj_set_style_bg_color(ov_net_led, c, 0);
+        }
     }
 }
 
@@ -1357,8 +1541,9 @@ static void ui_rebuild(void)
     netcfg_keyboard     = NULL;
     netcfg_status_lbl   = NULL;
     rtc_date_lbl        = NULL;
-    ov_net_keys         = NULL;
+    ov_dev_vals         = NULL;
     ov_net_vals         = NULL;
+    ov_net_led          = NULL;
 
     lv_obj_clean(lv_screen_active());
     ui_build();

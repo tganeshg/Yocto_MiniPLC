@@ -119,6 +119,9 @@ body {
   color: var(--mdcu-primary);
   font-size: 1.4rem;
 }
+.mdcu-brand-accent {
+  color: var(--mdcu-primary);
+}
 
 /* ---- nav ---- */
 .mdcu-nav-link {
@@ -250,10 +253,284 @@ body {
   border-radius: 999px;
 }
 .mdcu-pill-demo {
+  background: var(--mdcu-surface-2);
+  color: var(--mdcu-text-muted);
+}
+.mdcu-pill-stale {
   background: color-mix(in srgb, var(--mdcu-warning) 18%, transparent);
   color: var(--mdcu-warning);
 }
 .mdcu-pill-live {
   background: color-mix(in srgb, var(--mdcu-accent) 18%, transparent);
   color: var(--mdcu-accent);
+}
+
+/* ===== Overview --- Command Center ===== */
+.ov-updated {
+  font-size: 0.78rem;
+  color: var(--mdcu-text-muted);
+}
+
+.ov-hero {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  gap: 1rem;
+}
+@media (max-width: 1199.98px) {
+  .ov-hero {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 575.98px) {
+  .ov-hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* device identity card --- matches the standard surface cards */
+.ov-device {
+  background: var(--mdcu-surface);
+  color: var(--mdcu-text);
+  border: 1px solid var(--mdcu-border);
+  border-radius: var(--mdcu-radius);
+  box-shadow: var(--mdcu-shadow);
+  padding: 1rem 1.1rem;
+}
+.ov-device-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 0.85rem;
+}
+.ov-device-ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  font-size: 1.3rem;
+  color: #fff;
+  background: linear-gradient(140deg, #2f7de9, #56a5ff);
+  box-shadow: 0 8px 22px rgba(47, 125, 233, 0.4);
+}
+.ov-device-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+.ov-device-sub {
+  font-size: 0.78rem;
+  color: var(--mdcu-text-muted);
+}
+.ov-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.55rem 0.9rem;
+  font-size: 0.85rem;
+  margin: 0;
+}
+.ov-kv dt {
+  color: var(--mdcu-text-muted);
+  font-weight: 500;
+}
+.ov-kv dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+
+/* radial gauges */
+.ov-gauges {
+  display: flex;
+  gap: 1.1rem;
+  justify-content: space-around;
+  margin-top: 0.6rem;
+}
+.ov-gauge {
+  text-align: center;
+}
+.ov-ring {
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--gc) var(--p), var(--mdcu-surface-2) 0);
+}
+.ov-ring-in {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: var(--mdcu-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.ov-ring-in b {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--mdcu-text);
+}
+.ov-ring-in span {
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  color: var(--mdcu-text-muted);
+}
+.ov-gauge-label {
+  margin-top: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mdcu-text-muted);
+}
+
+/* protocol status --- enabled-only, auto-flow */
+.ov-count {
+  color: var(--mdcu-primary);
+  font-weight: 700;
+}
+.ov-proto {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+.ov-ptile {
+  background: var(--mdcu-surface-2);
+  border: 1px solid var(--mdcu-border);
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--mdcu-text);
+}
+.ov-ptile-st {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--mdcu-text-muted);
+  margin-top: 0.35rem;
+}
+
+/* interface panels (network + fieldbus) */
+.ov-ifaces {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.9rem;
+  margin-top: 0.75rem;
+}
+@media (max-width: 767.98px) {
+  .ov-ifaces {
+    grid-template-columns: 1fr;
+  }
+}
+.ov-iface {
+  background: var(--mdcu-surface-2);
+  border: 1px solid var(--mdcu-border);
+  border-radius: 12px;
+  padding: 0.85rem;
+}
+.ov-iface-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.6rem;
+}
+.ov-iface-name {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--mdcu-text);
+}
+.ov-iface-type {
+  font-size: 0.7rem;
+  color: var(--mdcu-text-muted);
+  font-weight: 600;
+}
+.ov-iface-status {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--mdcu-text-muted);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.ov-mode {
+  margin-left: auto;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+.ov-mode-sta {
+  background: color-mix(in srgb, var(--mdcu-primary) 16%, transparent);
+  color: var(--mdcu-primary);
+}
+.ov-mode-ap {
+  background: color-mix(in srgb, var(--mdcu-warning) 18%, transparent);
+  color: var(--mdcu-warning);
+}
+.ov-net {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  margin: 0;
+}
+.ov-net dt {
+  color: var(--mdcu-text-muted);
+}
+.ov-net dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+  color: var(--mdcu-text);
+}
+.ov-bound {
+  margin-top: 0.55rem;
+  font-size: 0.72rem;
+  color: var(--mdcu-text-muted);
+}
+.ov-bound b {
+  color: var(--mdcu-primary-700);
+  font-weight: 700;
+}
+.ov-common {
+  display: flex;
+  gap: 1.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--mdcu-border);
+  font-size: 0.82rem;
+}
+.ov-common b {
+  color: var(--mdcu-text-muted);
+  font-weight: 500;
+  margin-right: 0.4rem;
+}
+
+/* status dots */
+.ov-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+.ov-ok {
+  background: var(--mdcu-accent);
+  box-shadow: 0 0 8px var(--mdcu-accent);
+}
+.ov-warn {
+  background: var(--mdcu-warning);
+  box-shadow: 0 0 8px var(--mdcu-warning);
+}
+.ov-off {
+  background: var(--mdcu-border);
 }

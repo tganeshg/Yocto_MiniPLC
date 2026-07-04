@@ -83,7 +83,9 @@ export default function Sidebar({ open = false, onNavigate }) {
     <aside className={`mdcu-sidebar${open ? " is-open" : ""}`}>
       <div className="mdcu-brand">
         <i className="bi bi-cpu" />
-        <span>FlexiDon iX</span>
+        <span>
+          Flexi<span className="mdcu-brand-accent">Don</span> iX
+        </span>
       </div>
 
       <nav className="mdcu-nav">
