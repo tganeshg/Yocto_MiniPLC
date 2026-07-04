@@ -9,8 +9,11 @@
 #include "../project/project_store.h"
 
 #include <civetweb.h>
+#include <mdcu_pool.h>
+#include <mdcu_regmap.h>
 
 #include <errno.h>
+#include <stdint.h>
 #include <fcntl.h>
 #include <json-c/json.h>
 #include <stdio.h>
@@ -670,6 +673,139 @@ static int handle_hmi_reload(struct mg_connection *conn, void *cbdata)
     return 204;
 }
 
+/* ===== MDCU shared register pool (universal process image) ============== */
+
+/* GET /api/regs?start=N&count=M
+ * Bulk read of the shared pool. Response: {"start":N,"count":M,"values":[...]}
+ * The web UI's Overview/Monitor pages poll this; values are raw uint16 words. */
+static int handle_regs(struct mg_connection *conn, void *cbdata)
+{
+    (void)cbdata;
+    if (handle_options(conn))
+        return 204;
+
+    const struct mg_request_info *ri = mg_get_request_info(conn);
+    unsigned long start = 0, count = 8;
+    if (ri->query_string) {
+        size_t qlen = strlen(ri->query_string);
+        char tmp[32];
+        if (mg_get_var(ri->query_string, qlen, "start", tmp, sizeof(tmp)) > 0)
+            start = strtoul(tmp, NULL, 10);
+        if (mg_get_var(ri->query_string, qlen, "count", tmp, sizeof(tmp)) > 0)
+            count = strtoul(tmp, NULL, 10);
+    }
+
+    if (count == 0)
+        count = 1;
+    if (count > 1000) /* cap response size */
+        count = 1000;
+    if (start >= MDCU_POOL_REGS) {
+        reply_json_error(conn, 400, "start out of range");
+        return 400;
+    }
+    if (start + count > MDCU_POOL_REGS)
+        count = MDCU_POOL_REGS - start;
+
+    if (!mdcu_pool_is_open()) {
+        reply_json_error(conn, 503, "register pool unavailable");
+        return 503;
+    }
+
+    uint16_t buf[1000];
+    if (mdcu_read_block((uint32_t)start, buf, (uint32_t)count) != 0) {
+        reply_json_error(conn, 500, "pool read failed");
+        return 500;
+    }
+
+    struct json_object *o = json_object_new_object();
+    json_object_object_add(o, "start", json_object_new_int((int)start));
+    json_object_object_add(o, "count", json_object_new_int((int)count));
+    struct json_object *arr = json_object_new_array();
+    for (uint32_t i = 0; i < count; i++)
+        json_object_array_add(arr, json_object_new_int((int)buf[i]));
+    json_object_object_add(o, "values", arr);
+    reply_json_obj(conn, 200, o);
+    return 200;
+}
+
+/* ---- tag / metadata model v1 --------------------------------------------
+ * Stable contract the web + HMI layers bind to so any new protocol's data can
+ * be rendered generically. Grows as protocol pollers populate their ranges. */
+typedef struct {
+    uint32_t    reg;
+    const char *name;
+    const char *type;   /* bit,u8,i8,u16,i16,u32,i32,f32,u64,i64,f64 */
+    double      scale;  /* engineering value = raw * scale */
+    const char *unit;
+    const char *access; /* "r" | "rw" */
+    const char *desc;
+} mdcu_tag_desc_t;
+
+static const mdcu_tag_desc_t k_tags[] = {
+    { MDCU_SYS_CPU_TEMP_MILLIC, "sys.cpu_temp",  "i32", 0.001, "degC", "r", "CPU temperature" },
+    { MDCU_SYS_UPTIME_SEC,      "sys.uptime",    "u32", 1.0,   "s",    "r", "System uptime" },
+    { MDCU_SYS_EPOCH,           "sys.epoch",     "u32", 1.0,   "s",    "r", "Wall-clock epoch (UTC)" },
+    { MDCU_SYS_HEARTBEAT,       "sys.heartbeat", "u16", 1.0,   "",     "r", "Heartbeat counter" },
+};
+
+typedef struct {
+    const char *name;
+    uint32_t    base;
+    uint32_t    len;
+    const char *writer;
+} mdcu_range_desc_t;
+
+static const mdcu_range_desc_t k_ranges[] = {
+    { "system",    MDCU_RNG_SYS_BASE,     MDCU_RNG_SYS_LEN,     "hmi/firmware" },
+    { "local_io",  MDCU_RNG_LOCALIO_BASE, MDCU_RNG_LOCALIO_LEN, "firmware" },
+    { "modbus",    MDCU_RNG_MODBUS_BASE,  MDCU_RNG_MODBUS_LEN,  "modbus_poller" },
+    { "dlms",      MDCU_RNG_DLMS_BASE,    MDCU_RNG_DLMS_LEN,    "dlms_poller" },
+    { "ladder",    MDCU_RNG_LADDER_BASE,  MDCU_RNG_LADDER_LEN,  "ladder_vm" },
+    { "mqtt",      MDCU_RNG_MQTT_BASE,    MDCU_RNG_MQTT_LEN,    "mqtt" },
+    { "retentive", MDCU_RNG_RETENT_BASE,  MDCU_RNG_RETENT_LEN,  "retentive" },
+};
+
+/* GET /api/regmap
+ * Static metadata describing the pool: range layout + known tags. */
+static int handle_regmap(struct mg_connection *conn, void *cbdata)
+{
+    (void)cbdata;
+    if (handle_options(conn))
+        return 204;
+
+    struct json_object *o = json_object_new_object();
+    json_object_object_add(o, "version", json_object_new_int(1));
+    json_object_object_add(o, "pool_regs", json_object_new_int((int)MDCU_POOL_REGS));
+
+    struct json_object *ranges = json_object_new_array();
+    for (size_t i = 0; i < sizeof(k_ranges) / sizeof(k_ranges[0]); i++) {
+        struct json_object *r = json_object_new_object();
+        json_object_object_add(r, "name", json_object_new_string(k_ranges[i].name));
+        json_object_object_add(r, "base", json_object_new_int((int)k_ranges[i].base));
+        json_object_object_add(r, "len", json_object_new_int((int)k_ranges[i].len));
+        json_object_object_add(r, "writer", json_object_new_string(k_ranges[i].writer));
+        json_object_array_add(ranges, r);
+    }
+    json_object_object_add(o, "ranges", ranges);
+
+    struct json_object *tags = json_object_new_array();
+    for (size_t i = 0; i < sizeof(k_tags) / sizeof(k_tags[0]); i++) {
+        struct json_object *t = json_object_new_object();
+        json_object_object_add(t, "reg", json_object_new_int((int)k_tags[i].reg));
+        json_object_object_add(t, "name", json_object_new_string(k_tags[i].name));
+        json_object_object_add(t, "type", json_object_new_string(k_tags[i].type));
+        json_object_object_add(t, "scale", json_object_new_double(k_tags[i].scale));
+        json_object_object_add(t, "unit", json_object_new_string(k_tags[i].unit));
+        json_object_object_add(t, "access", json_object_new_string(k_tags[i].access));
+        json_object_object_add(t, "desc", json_object_new_string(k_tags[i].desc));
+        json_object_array_add(tags, t);
+    }
+    json_object_object_add(o, "tags", tags);
+
+    reply_json_obj(conn, 200, o);
+    return 200;
+}
+
 struct mg_context *rest_api_start(DeviceConfig *cfg)
 {
     s_cfg = cfg;
@@ -679,7 +815,7 @@ struct mg_context *rest_api_start(DeviceConfig *cfg)
         MINIPLC_HTTP_PORT,
         "num_threads",
         "4",
-        "request_size_limit_bytes",
+        "max_request_size",
         "33554432",
         NULL,
     };
@@ -692,6 +828,8 @@ struct mg_context *rest_api_start(DeviceConfig *cfg)
     mg_set_request_handler(ctx, "/api/program/start", handle_program_start, NULL);
     mg_set_request_handler(ctx, "/api/program/stop", handle_program_stop, NULL);
     mg_set_request_handler(ctx, "/api/registers", handle_registers, NULL);
+    mg_set_request_handler(ctx, "/api/regs", handle_regs, NULL);
+    mg_set_request_handler(ctx, "/api/regmap", handle_regmap, NULL);
     mg_set_request_handler(ctx, "/api/io", handle_io_get, NULL);
     mg_set_request_handler(ctx, "/api/io/do", handle_io_do_post, NULL);
     mg_set_request_handler(ctx, "/api/project/upload", handle_project_upload, NULL);

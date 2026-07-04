@@ -1,5 +1,5 @@
 SUMMARY = "Mini PLC firmware — REST API, ladder runtime, GPIO, project apply (civetweb)"
-PR = "r1"
+PR = "r2"
 HOMEPAGE = "https://github.com/"
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
@@ -46,8 +46,8 @@ INITSCRIPT_PACKAGES = "${PN}"
 INITSCRIPT_NAME:${PN} = "plc-firmware"
 INITSCRIPT_PARAMS:${PN} = "defaults 90 10"
 
-DEPENDS += "civetweb json-c libgpiod "
-RDEPENDS:${PN} += "civetweb json-c libgpiod unzip "
+DEPENDS += "civetweb json-c libgpiod libmdcu-pool "
+RDEPENDS:${PN} += "civetweb json-c libgpiod libmdcu-pool unzip "
 
 SYSTEMD_SERVICE:${PN} = "plc-firmware.service"
 SYSTEMD_AUTO_ENABLE = "enable"

@@ -7,6 +7,8 @@
 #include "plugin/plugin_manager.h"
 #include "project/project_store.h"
 
+#include <mdcu_pool.h>
+
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -37,6 +39,12 @@ int main(void)
     mkdir("/var/lib/plc/hmi", 0755);
 
     device_config_load_file(MINIPLC_CONFIG_FILE, &g_cfg);
+
+    /* Map the shared MDCU register pool (/dev/shm/mdcu_pool). This is the
+     * universal process image the web UI reads via /api/regs. Non-fatal if it
+     * fails — the REST API still serves, /api/regs just reports unavailable. */
+    if (mdcu_pool_open() != 0)
+        perror("plc_firmware: mdcu_pool_open");
 
     reg_map_init();
     plc_engine_init(&g_cfg);
