@@ -119,6 +119,13 @@ body {
   color: var(--mdcu-primary);
   font-size: 1.4rem;
 }
+.mdcu-brand-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
 .mdcu-brand-accent {
   color: var(--mdcu-primary);
 }

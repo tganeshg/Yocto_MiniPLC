@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { NAV_MENU } from "./navModel.js";
+import logo from "../assets/flexidon-logo.png";
 
 /*
  * Sidebar --- primary navigation, rendered recursively from navModel.js so the
@@ -82,7 +83,7 @@ export default function Sidebar({ open = false, onNavigate }) {
   return (
     <aside className={`mdcu-sidebar${open ? " is-open" : ""}`}>
       <div className="mdcu-brand">
-        <i className="bi bi-cpu" />
+        <img src={logo} className="mdcu-brand-logo" alt="FlexiDon iX" />
         <span>
           Flexi<span className="mdcu-brand-accent">Don</span> iX
         </span>

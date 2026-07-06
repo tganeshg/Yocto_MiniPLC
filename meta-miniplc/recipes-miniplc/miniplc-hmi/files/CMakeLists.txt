@@ -24,6 +24,7 @@ add_executable(miniplc-hmi
     menu.c
     modbus.c
     libmodbus_bridge.c
+    flexidon_logo.c
 )
 
 target_include_directories(miniplc-hmi PRIVATE

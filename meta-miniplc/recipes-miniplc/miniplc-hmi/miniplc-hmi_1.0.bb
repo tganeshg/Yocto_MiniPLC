@@ -1,5 +1,5 @@
 SUMMARY = "MiniPLC LVGL local HMI (framebuffer)"
-PR = "r11"
+PR = "r12"
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
@@ -7,6 +7,7 @@ SRC_URI = "file://CMakeLists.txt \
            file://main.c \
            file://menu.c \
            file://menu.h \
+           file://flexidon_logo.c \
            file://modbus.c \
            file://modbus.h \
            file://libmodbus_bridge.c \

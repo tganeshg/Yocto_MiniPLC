@@ -492,10 +492,10 @@ static void header_create(lv_obj_t *parent)
     lv_obj_set_style_border_width(hdr, 2, 0);
     lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* LVGL logo on the left */
+    /* FlexiDon logo on the left */
     lv_obj_t *logo = lv_image_create(hdr);
-    LV_IMAGE_DECLARE(img_lvgl_logo);
-    lv_image_set_src(logo, &img_lvgl_logo);
+    LV_IMAGE_DECLARE(flexidon_logo);
+    lv_image_set_src(logo, &flexidon_logo);
     lv_obj_align(logo, LV_ALIGN_LEFT_MID, 12, 0);
 
     /* Product title — two-tone "FlexiDon iX" (Don = accent). */
@@ -503,7 +503,7 @@ static void header_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(b1, font_large, 0);
     lv_obj_set_style_text_color(b1, COL_TEXT, 0);
     lv_label_set_text(b1, "Flexi");
-    lv_obj_align(b1, LV_ALIGN_LEFT_MID, 80, -10);
+    lv_obj_align(b1, LV_ALIGN_LEFT_MID, 62, -10);
 
     lv_obj_t *b2 = lv_label_create(hdr);
     lv_obj_set_style_text_font(b2, font_large, 0);
@@ -520,7 +520,7 @@ static void header_create(lv_obj_t *parent)
     lv_obj_t *sub = lv_label_create(hdr);
     lv_obj_set_style_text_color(sub, COL_TEXT_MUTED, 0);
     lv_label_set_text(sub, "Flexible Data Collector & Controller");
-    lv_obj_align(sub, LV_ALIGN_LEFT_MID, 80, 12);
+    lv_obj_align(sub, LV_ALIGN_LEFT_MID, 62, 12);
 
     /* Clock on the right */
     rtc_date_lbl = lv_label_create(hdr);
@@ -656,9 +656,76 @@ static void create_proto_tile(lv_obj_t *parent, int32_t x, int32_t y,
     lv_obj_align(st, LV_ALIGN_BOTTOM_LEFT, 16, 0);
 }
 
+/* A single interface tile (fieldbus / industrial bus) with detail rows:
+ *   [LED] Name                    Type
+ *   key           val
+ *   ...
+ *   Bound: <binding>
+ * Values are static placeholders (no serial/CAN telemetry feed yet). */
+static void create_iface_tile(lv_obj_t *parent, int32_t x, int32_t y,
+                              int32_t w, int32_t h, const char *name,
+                              const char *type, lv_color_t led,
+                              const char *keys, const char *vals,
+                              const char *bound)
+{
+    lv_obj_t *t = lv_obj_create(parent);
+    lv_obj_remove_style_all(t);
+    lv_obj_set_size(t, w, h);
+    lv_obj_set_pos(t, x, y);
+    lv_obj_set_style_bg_color(t, COL_BG_SCREEN, 0);
+    lv_obj_set_style_bg_opa(t, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(t, COL_TILE_BORDER, 0);
+    lv_obj_set_style_border_width(t, 1, 0);
+    lv_obj_set_style_radius(t, 7, 0);
+    lv_obj_set_style_pad_all(t, 10, 0);
+    lv_obj_clear_flag(t, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *dot = lv_obj_create(t);
+    lv_obj_remove_style_all(dot);
+    lv_obj_set_size(dot, 9, 9);
+    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(dot, led, 0);
+    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+    lv_obj_align(dot, LV_ALIGN_TOP_LEFT, 0, 4);
+
+    lv_obj_t *nm = lv_label_create(t);
+    lv_obj_set_style_text_color(nm, COL_TEXT, 0);
+    lv_label_set_text(nm, name);
+    lv_obj_align(nm, LV_ALIGN_TOP_LEFT, 16, 0);
+
+    lv_obj_t *ty = lv_label_create(t);
+    lv_obj_set_style_text_color(ty, COL_TEXT_MUTED, 0);
+    lv_label_set_text(ty, type);
+    lv_obj_align(ty, LV_ALIGN_TOP_RIGHT, 0, 2);
+
+    lv_obj_t *kl = lv_label_create(t);
+    lv_obj_set_style_text_color(kl, COL_TEXT_MUTED, 0);
+    lv_obj_set_style_text_line_space(kl, 6, 0);
+    lv_label_set_text(kl, keys);
+    lv_obj_align(kl, LV_ALIGN_TOP_LEFT, 0, 28);
+
+    lv_obj_t *vl = lv_label_create(t);
+    lv_obj_set_style_text_color(vl, COL_TEXT, 0);
+    lv_obj_set_style_text_line_space(vl, 6, 0);
+    lv_obj_set_style_text_align(vl, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_text(vl, vals);
+    lv_obj_align(vl, LV_ALIGN_TOP_RIGHT, 0, 28);
+
+    if (bound) {
+        lv_obj_t *b = lv_label_create(t);
+        lv_obj_set_style_text_color(b, COL_TEXT_MUTED, 0);
+        lv_label_set_text(b, bound);
+        lv_obj_align(b, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    }
+}
+
 static void overview_create(lv_obj_t *parent)
 {
-    lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
+    /* Overview scrolls vertically: the visible screen shows the hero + the
+     * network/protocol row; the fieldbus section sits below the fold. */
+    lv_obj_add_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(parent, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_style_pad_all(parent, 0, 0);
     lv_obj_set_style_bg_color(parent, COL_BG_SCREEN, 0);
 
@@ -708,7 +775,7 @@ static void overview_create(lv_obj_t *parent)
     ov_g_mem  = create_gauge(parent, 636, 8, 156, 194, "MEMORY",   "RAM",
                              lv_color_hex(COL_MEM_HEX));
 
-    /* ---- Bottom strip: network / uplink + protocol status ---- */
+    /* ---- Bottom row: network / uplink + protocol status ---- */
     lv_obj_t *net = create_card(parent, 8, 210, 384, 156, "NETWORK / UPLINK");
     ov_net_led = lv_obj_create(net);
     lv_obj_remove_style_all(ov_net_led);
@@ -738,6 +805,20 @@ static void overview_create(lv_obj_t *parent)
     create_proto_tile(proto, 192, 22, 180, 54, "MQTT",        "Connected", COL_LED_GREEN);
     create_proto_tile(proto,   0, 82, 180, 54, "OPC UA",      "Idle",      COL_LED_YELLOW);
     create_proto_tile(proto, 192, 82, 180, 54, "PLC Runtime", "5 ms",      COL_LED_GREEN);
+
+    /* ---- Below the fold: fieldbus / industrial bus (scroll down) ----
+     * Serial 1 + Serial 2 share the top row; CAN 1 sits below. */
+    lv_obj_t *fb = create_card(parent, 8, 374, 784, 364,
+                               "FIELDBUS / INDUSTRIAL BUS INTERFACES");
+    create_iface_tile(fb,   0, 30, 376, 150, "Serial 1", "RS-232", COL_LED_GREEN,
+                      "Baud\nFrame\nFlow", "115200\n8 / None / 1\nNone",
+                      "Bound: none");
+    create_iface_tile(fb, 384, 30, 376, 150, "Serial 2", "RS-485", COL_LED_GREEN,
+                      "Baud\nFrame\nTerm.", "9600\n8 / Even / 1\nOn",
+                      "Bound: Modbus RTU");
+    create_iface_tile(fb,   0, 194, 376, 150, "CAN 1", "CAN 2.0B", COL_LED_GREEN,
+                      "Bitrate\nMode\nBus Load", "250 kbit/s\nNormal\n12%",
+                      "Bound: none");
 }
 
 static void plc_create(lv_obj_t *parent)
