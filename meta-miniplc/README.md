@@ -1,9 +1,11 @@
 # meta-miniplc
 
-Product layer for the **MiniHMI / Mini PLC** — an industrial HMI + Data
-Concentrator Unit running on Raspberry Pi (B+ today, larger boards
-later). All customizations needed to turn a generic Yocto / Raspberry Pi
-image into the MiniHMI product live here.
+Product layer for **FlexiDon iX** — a Flexible Data Collector &
+Controller (industrial HMI + mini-PLC + Data Concentrator Unit) running
+on Raspberry Pi (B+ today, larger boards later). `MDCU` / `MiniHMI` /
+`Mini PLC` are legacy codenames still visible in some recipe and package
+names. All customizations needed to turn a generic Yocto / Raspberry Pi
+image into the FlexiDon iX product live here.
 
 Designed to sit on top of upstream `meta-raspberrypi` **without
 modifying it**. That keeps the BSP tree clean for future kernel/firmware
@@ -47,23 +49,33 @@ meta-miniplc/
 │       └── nginx_%.bbappend                    Reverse proxy /api → civetweb
 │
 ├── recipes-miniplc/
+│   ├── libmdcu-pool/                           Shared 50k×16-bit register pool recipe
 │   ├── miniplc-hmi/                            LVGL touchscreen UI recipe
-│   ├── mini-plc-web/                           React web UI recipe (pre-built tarball)
 │   ├── plc-firmware/                           REST API + ladder runtime recipe
+│   ├── plc-firmware-src/                       plc-firmware C/C++ source tree
+│   ├── web/                                    React/Vite web UI source (in-layer)
+│   ├── mini-plc-web/                           Web packaging recipe (Vite build → nginx)
 │   └── packagegroups/
-│       └── packagegroup-miniplc.bb             Meta-package: pulls all three in
+│       └── packagegroup-miniplc.bb             Meta-package: pulls the product in
 │
 └── scripts/
     └── miniplc-smoke-test.sh                   On-target sanity check
 ```
 
-### Three product recipes
+### Four product recipes
 
 | Recipe          | What it builds                                            |
 |-----------------|-----------------------------------------------------------|
-| `miniplc-hmi`   | LVGL 9.4.0 touchscreen app (`/usr/bin/lvgl_sample`)        |
+| `libmdcu-pool`  | `libmdcu_pool.so` — shared 50k×16-bit register pool        |
 | `plc-firmware`  | C/C++ REST API + ladder-logic VM (civetweb on :5080)      |
+| `miniplc-hmi`   | LVGL 9.4.0 touchscreen app (`/usr/bin/miniplc-hmi`)        |
 | `mini-plc-web`  | React/Vite SPA served by nginx at `/`                     |
+
+`libmdcu-pool` is the shared register pool both `plc-firmware` and
+`miniplc-hmi` link against as the single source of truth. The React
+source for `mini-plc-web` now lives in-layer at `recipes-miniplc/web/`;
+the recipe ships a pre-built `web-dist.tar.gz` regenerated from it
+(`npm ci && npm run build`, then tar `dist/`).
 
 The `packagegroup-miniplc` ties them together so `IMAGE_INSTALL += "packagegroup-miniplc"` is enough to pull the whole product in.
 

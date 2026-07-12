@@ -1,6 +1,7 @@
 # meta-miniplc / tests
 
-Out-of-band integration tests for the MiniPLC HMI.  These run on the **dev
+Out-of-band integration tests for the FlexiDon iX HMI (`miniplc-hmi`).
+These run on the **dev
 host**, drive the Pi over SSH (LAN) and the serial console (USB-UART on
 `/dev/ttyUSB0`), and exercise the on-device binaries against synthetic
 peers that the host runs locally.
